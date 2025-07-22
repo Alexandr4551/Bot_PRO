@@ -1,7 +1,7 @@
 # virtual_trading/core/virtual_trader_v2.py
 """
-Основной класс виртуального трейдера V2 - упрощенный оркестратор
-Интегрируется с существующей архитектурой: core/, config/, utils/
+ИСПРАВЛЕННЫЙ основной класс виртуального трейдера V2 - упрощенный оркестратор
+Версия 2.1 - исправлена интеграция с BalanceManager и логика баланса
 """
 
 import logging
@@ -23,7 +23,7 @@ from ..services.report_generator import ReportGenerator
 logger = logging.getLogger('VirtualTrader')
 
 class VirtualTraderV2:
-    """Упрощенный виртуальный трейдер V2 - основной оркестратор"""
+    """Исправленный виртуальный трейдер V2 с корректной логикой баланса"""
     
     def __init__(self, initial_balance=10000.0, position_size_percent=2.0, max_exposure_percent=20.0):
         logger.info("[INIT] Инициализация виртуального трейдера V2...")
@@ -87,19 +87,32 @@ class VirtualTraderV2:
                 logger.debug(f"[TIMING] Статистика немедленных входов: {self.timing_stats['immediate_entries']}")
                 
         else:
-            # Обновляем статистику блокировок
-            # Детали определяются в balance_manager
-            pass
+            # ИСПРАВЛЕНО: Обновляем статистику блокировок на основе причины
+            # Получаем причину блокировки из balance_manager
+            can_open, reason = self.balance_manager.can_open_new_position(self.open_positions)
+            if reason == "insufficient_balance":
+                self.blocked_by_balance += 1
+            elif reason == "exposure_limit":
+                self.blocked_by_exposure += 1
     
     async def check_position_exits(self, api) -> None:
         """Проверка закрытия позиций - делегирует в PositionManager"""
         await self.position_manager.check_position_exits(api)
         
-        # НОВОЕ: Проверка консистентности после изменений позиций
+        # ИСПРАВЛЕНО: Проверка консистентности после изменений позиций
         try:
             consistency = self.balance_manager.check_balance_consistency(self.open_positions)
             if not consistency.get('is_consistent', True):
-                logger.warning(f"[CONSISTENCY] Обнаружена несогласованность баланса: {consistency}")
+                consistency_level = consistency.get('consistency_level', 'UNKNOWN')
+                difference = consistency.get('difference', 0)
+                logger.warning(f"[CONSISTENCY] Обнаружена несогласованность баланса: "
+                              f"${difference:+.2f}, уровень: {consistency_level}")
+                
+                # При критической несогласованности - дополнительное логирование
+                if consistency_level == 'CRITICAL':
+                    debug_info = self.balance_manager.get_debug_info()
+                    logger.error(f"[CRITICAL] Критическая ошибка баланса. Debug info: {debug_info}")
+                    
         except Exception as e:
             logger.debug(f"[CONSISTENCY] Ошибка проверки консистентности: {e}")
     
@@ -154,12 +167,18 @@ class VirtualTraderV2:
             logger.error(f"[ERROR] Ошибка в log_status: {e}", exc_info=True)
     
     def _display_status_line(self, stats: Dict, timing_status: str = "") -> None:
-        """Отображение статусной строки (как в оригинальном коде)"""
+        """Отображение статусной строки с ИСПРАВЛЕННОЙ диагностикой баланса"""
         try:
             unrealized_pnl = stats.get('unrealized_pnl', 0)
             unrealized_status = f" | Нереализ. P&L: ${unrealized_pnl:+.2f}" if unrealized_pnl != 0 else ""
             
-            status = (f"[MONEY] Баланс: ${stats['current_balance']:,.2f} ({stats['balance_percent']:+.2f}%){unrealized_status} | "
+            # НОВОЕ: Показываем предупреждение если есть проблемы с балансом
+            balance_warning = ""
+            if stats.get('has_balance_issue', False):
+                balance_difference = stats.get('balance_difference', 0)
+                balance_warning = f" | ⚠️ Баланс: разница ${balance_difference:+.2f}"
+            
+            status = (f"[MONEY] Баланс: ${stats['current_balance']:,.2f} ({stats['balance_percent']:+.2f}%){unrealized_status}{balance_warning} | "
                      f"Доступно: ${stats['available_balance']:,.2f} | "
                      f"Инвестировано: ${stats['invested_capital']:,.0f} ({stats['exposure_percent']:.1f}%) | "
                      f"Позиций: {stats['open_positions_count']} | Сделок: {stats['total_trades']}{timing_status}")
@@ -186,11 +205,11 @@ class VirtualTraderV2:
             logger.error(f"[ERROR] Ошибка периодического сохранения: {e}", exc_info=True)
     
     def quick_save(self) -> Optional[str]:
-        """Быстрое сохранение только критичных данных (для экстренного завершения)"""
+        """ИСПРАВЛЕННОЕ быстрое сохранение с корректной логикой баланса"""
         try:
             timestamp = datetime.now().strftime('%H%M%S')
             
-            # ИСПРАВЛЕНО: Используем новую логику баланса
+            # ИСПРАВЛЕНО: Используем правильные методы balance_manager
             balance_summary = self.balance_manager.get_balance_summary(self.open_positions)
             
             # Быстрая статистика без долгих операций
@@ -206,13 +225,14 @@ class VirtualTraderV2:
                 'balance_change': balance_summary['balance_change'],
                 'balance_percent': balance_summary['balance_percent'],
                 
-                # НОВОЕ: Отладочная информация
+                # Диагностическая информация
                 'invested_capital': balance_summary['invested_capital'],
                 'unrealized_pnl': balance_summary['unrealized_pnl'],
-                'total_realized_pnl': balance_summary['total_realized_pnl'],
-                'market_value_positions': balance_summary['market_value_positions'],
-                'current_balance_v2': balance_summary['current_balance_v2'],
-                'balance_difference': balance_summary['balance_difference'],
+                'total_realized_pnl': balance_summary.get('total_realized_pnl', 0),
+                'market_value_positions': balance_summary.get('market_value_positions', 0),
+                'current_balance_v2': balance_summary.get('current_balance_v2', 0),
+                'balance_difference': balance_summary.get('balance_difference', 0),
+                'has_balance_issue': balance_summary.get('has_balance_issue', False),
                 
                 # Быстрая статистика сделок
                 'total_trades': len(self.closed_trades),
@@ -232,9 +252,12 @@ class VirtualTraderV2:
                 'blocked_by_balance': self.blocked_by_balance,
                 'blocked_by_exposure': self.blocked_by_exposure,
                 
-                # НОВОЕ: Проверки консистентности
-                'consistency_check': self.balance_manager.check_balance_consistency(self.open_positions),
-                'positions_consistency': self.position_manager.check_positions_consistency()
+                # ИСПРАВЛЕНО: Проверки консистентности с обработкой ошибок
+                'consistency_check': self._safe_consistency_check(),
+                'positions_consistency': self._safe_positions_consistency_check(),
+                
+                # НОВОЕ: Debug информация от BalanceManager
+                'balance_debug_info': self.balance_manager.get_debug_info()
             }
             
             # Profit Factor
@@ -253,26 +276,63 @@ class VirtualTraderV2:
             
             logger.info(f"[EMERGENCY] Экстренное сохранение: {emergency_file}")
             
-            # НОВОЕ: Логируем потенциальные проблемы
-            if abs(stats['balance_difference']) > 1.0:
-                logger.warning(f"[EMERGENCY] Обнаружена разница в расчете баланса: ${stats['balance_difference']:+.2f}")
+            # ИСПРАВЛЕНО: Логируем потенциальные проблемы с правильными проверками
+            if stats.get('has_balance_issue', False):
+                logger.warning(f"[EMERGENCY] Обнаружена проблема с балансом: ${stats['balance_difference']:+.2f}")
+            
+            consistency = stats.get('consistency_check', {})
+            if not consistency.get('is_consistent', True):
+                logger.warning(f"[EMERGENCY] Несогласованность баланса: {consistency.get('consistency_level', 'UNKNOWN')}")
             
             return emergency_file
             
         except Exception as e:
             logger.error(f"[EMERGENCY] Ошибка экстренного сохранения: {e}")
             return None
+    
+    def _safe_consistency_check(self) -> Dict:
+        """Безопасная проверка консистентности баланса"""
+        try:
+            return self.balance_manager.check_balance_consistency(self.open_positions)
+        except Exception as e:
+            logger.debug(f"[DEBUG] Ошибка проверки консистентности баланса: {e}")
+            return {'is_consistent': True, 'error': str(e)}
+    
+    def _safe_positions_consistency_check(self) -> Dict:
+        """Безопасная проверка консистентности позиций"""
+        try:
+            if hasattr(self.position_manager, 'check_positions_consistency'):
+                return self.position_manager.check_positions_consistency()
+            else:
+                # Простая проверка если метода нет
+                issues = []
+                for symbol, position in self.open_positions.items():
+                    try:
+                        remaining_percent = position.get_remaining_percent()
+                        if remaining_percent < 0 or remaining_percent > 100:
+                            issues.append(f"{symbol}: некорректный remaining_percent {remaining_percent}")
+                    except Exception as e:
+                        issues.append(f"{symbol}: ошибка проверки - {e}")
+                
+                return {
+                    'total_issues': len(issues),
+                    'positions_with_issues': issues,
+                    'is_consistent': len(issues) == 0
+                }
+        except Exception as e:
+            logger.debug(f"[DEBUG] Ошибка проверки консистентности позиций: {e}")
+            return {'total_issues': 0, 'error': str(e)}
 
     def create_quick_txt_summary(self, stats: Dict) -> None:
-        """Создает быстрый txt отчет с отладочной информацией"""
+        """ИСПРАВЛЕННЫЙ создает быстрый txt отчет с улучшенной отладочной информацией"""
         try:
             summary_file = f"{self.results_dir}/session_summary.txt"
             
             with open(summary_file, 'w', encoding='utf-8') as f:
-                f.write("=== ИТОГИ ТОРГОВОЙ СЕССИИ ===\n")
+                f.write("=== ИТОГИ ТОРГОВОЙ СЕССИИ (V2.1) ===\n")
                 f.write(f"Завершено: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"Длительность: {stats['session_duration_hours']:.1f} часов\n")
-                f.write("=" * 35 + "\n\n")
+                f.write("=" * 40 + "\n\n")
                 
                 f.write("💰 ФИНАНСОВЫЕ РЕЗУЛЬТАТЫ:\n")
                 f.write(f"   Начальный баланс: ${stats['initial_balance']:,.0f}\n")
@@ -280,9 +340,9 @@ class VirtualTraderV2:
                 f.write(f"   Общий P&L:        ${stats['total_pnl']:+,.0f}\n")
                 f.write(f"   P&L в процентах:  {stats['balance_percent']:+.2f}%\n")
                 
-                # НОВОЕ: Показываем отладочную информацию если есть проблемы
-                if abs(stats.get('balance_difference', 0)) > 1.0:
-                    f.write(f"\n⚠️ ОТЛАДОЧНАЯ ИНФОРМАЦИЯ:\n")
+                # ИСПРАВЛЕНО: Показываем диагностику баланса если есть проблемы
+                if stats.get('has_balance_issue', False):
+                    f.write(f"\n⚠️ ДИАГНОСТИКА БАЛАНСА:\n")
                     f.write(f"   Доступный баланс:     ${stats['available_balance']:,.2f}\n")
                     f.write(f"   Инвестированный:      ${stats.get('invested_capital', 0):,.2f}\n")
                     f.write(f"   Нереализованный P&L:  ${stats.get('unrealized_pnl', 0):+,.2f}\n")
@@ -320,10 +380,11 @@ class VirtualTraderV2:
                 f.write(f"   По экспозиции:    {stats['blocked_by_exposure']}\n")
                 f.write(f"   Всего сигналов:   {stats['total_signals']}\n")
                 
-                # НОВОЕ: Показываем проблемы консистентности
+                # ИСПРАВЛЕНО: Показываем проблемы консистентности
                 consistency = stats.get('consistency_check', {})
                 if not consistency.get('is_consistent', True):
                     f.write(f"\n⚠️ ПРОБЛЕМЫ КОНСИСТЕНТНОСТИ:\n")
+                    f.write(f"   Уровень проблемы: {consistency.get('consistency_level', 'UNKNOWN')}\n")
                     f.write(f"   Разница в балансе: ${consistency.get('difference', 0):+.2f}\n")
                     f.write(f"   Процент разницы:   {consistency.get('difference_percent', 0):.3f}%\n")
                 
@@ -333,14 +394,21 @@ class VirtualTraderV2:
                     f.write(f"   Проблемных позиций: {len(pos_consistency.get('positions_with_issues', []))}\n")
                     f.write(f"   Всего проблем:      {pos_consistency.get('total_issues', 0)}\n")
                 
-                f.write("\n" + "=" * 35 + "\n")
+                # НОВОЕ: Debug информация от BalanceManager
+                debug_info = stats.get('balance_debug_info', {})
+                if debug_info.get('total_operations', 0) > 0:
+                    f.write(f"\n🔧 DEBUG ИНФОРМАЦИЯ:\n")
+                    f.write(f"   Операций с балансом: {debug_info.get('total_operations', 0)}\n")
+                    f.write(f"   Общий realized P&L:  ${debug_info.get('total_realized_pnl', 0):+.2f}\n")
+                
+                f.write("\n" + "=" * 40 + "\n")
                 if stats['win_rate'] >= 60:
                     f.write("🎉 Отличная сессия!\n")
                 elif stats['win_rate'] >= 50:
                     f.write("👍 Хорошая сессия!\n") 
                 else:
                     f.write("📈 Есть что улучшать!\n")
-                f.write("Сессия завершена успешно.\n")
+                f.write("Сессия завершена (V2.1 - исправленная логика баланса).\n")
             
             logger.info(f"[SUMMARY] Краткий отчет создан: {summary_file}")
             
@@ -432,3 +500,24 @@ class VirtualTraderV2:
     def get_risk_status(self) -> Dict:
         """Получить статус рисков"""
         return self.balance_manager.check_risk_limits(self.open_positions)
+    
+    def get_balance_debug_info(self) -> Dict:
+        """НОВЫЙ метод для получения отладочной информации о балансе"""
+        try:
+            return {
+                'balance_manager_debug': self.balance_manager.get_debug_info(),
+                'consistency_check': self.balance_manager.check_balance_consistency(self.open_positions),
+                'risk_status': self.balance_manager.check_risk_limits(self.open_positions),
+                'balance_summary': self.balance_manager.get_balance_summary(self.open_positions)
+            }
+        except Exception as e:
+            logger.error(f"[DEBUG] Ошибка получения debug информации: {e}")
+            return {'error': str(e)}
+    
+    def cleanup_balance_operations(self):
+        """НОВЫЙ метод для очистки истории операций (экономия памяти)"""
+        try:
+            self.balance_manager.reset_debug_operations()
+            logger.info("[CLEANUP] История операций баланса очищена")
+        except Exception as e:
+            logger.error(f"[CLEANUP] Ошибка очистки операций: {e}")

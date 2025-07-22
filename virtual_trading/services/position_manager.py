@@ -377,3 +377,104 @@ class PositionManager:
             'total_pnl': total_pnl,
             'trades': recent_trades
         }
+    def check_positions_consistency(self) -> Dict:
+        """НОВЫЙ метод проверки консистентности позиций"""
+        try:
+            issues = []
+            total_issues = 0
+            
+            for symbol, position in self.open_positions.items():
+                position_issues = []
+                
+                try:
+                    # Проверка 1: Remaining percent в допустимых пределах
+                    remaining_percent = position.get_remaining_percent()
+                    if remaining_percent < 0 or remaining_percent > 100:
+                        position_issues.append(f"Некорректный remaining_percent: {remaining_percent}%")
+                    
+                    # Проверка 2: Количество позиции
+                    if position.quantity <= 0:
+                        position_issues.append(f"Некорректное количество: {position.quantity}")
+                    
+                    remaining_quantity = position.get_remaining_quantity()
+                    if remaining_quantity < 0:
+                        position_issues.append(f"Отрицательное оставшееся количество: {remaining_quantity}")
+                    
+                    # Проверка 3: Цены
+                    if position.entry_price <= 0:
+                        position_issues.append(f"Некорректная цена входа: {position.entry_price}")
+                    
+                    # Проверка 4: Логика частичных закрытий
+                    filled_count = sum([position.tp1_filled, position.tp2_filled, position.tp3_filled])
+                    expected_remaining = 100
+                    if position.tp1_filled:
+                        expected_remaining -= 50
+                    if position.tp2_filled:
+                        expected_remaining -= 25  
+                    if position.tp3_filled:
+                        expected_remaining -= 25
+                    
+                    if abs(remaining_percent - expected_remaining) > 1:  # Допуск 1%
+                        position_issues.append(f"Несоответствие расчета remaining_percent: {remaining_percent}% vs ожидаемый {expected_remaining}%")
+                    
+                    # Проверка 5: Stop Loss логика
+                    if position.sl_moved_to_breakeven and not position.tp1_filled:
+                        position_issues.append("SL в безубытке, но TP1 не исполнен")
+                    
+                    # Проверка 6: Логика направления
+                    if position.direction not in ['buy', 'sell']:
+                        position_issues.append(f"Некорректное направление: {position.direction}")
+                    
+                    # Проверка 7: Timing информация
+                    if position.timing_info is None:
+                        position_issues.append("Отсутствует timing_info")
+                    
+                    if position_issues:
+                        issues.append({
+                            'symbol': symbol,
+                            'issues': position_issues,
+                            'position_data': {
+                                'direction': position.direction,
+                                'remaining_percent': remaining_percent,
+                                'tp1_filled': position.tp1_filled,
+                                'tp2_filled': position.tp2_filled,
+                                'tp3_filled': position.tp3_filled
+                            }
+                        })
+                        total_issues += len(position_issues)
+                        
+                        logger.warning(f"[CONSISTENCY] Проблемы с позицией {symbol}: {position_issues}")
+                    
+                except Exception as e:
+                    position_issues.append(f"Ошибка проверки: {str(e)}")
+                    issues.append({
+                        'symbol': symbol,
+                        'issues': position_issues,
+                        'error': str(e)
+                    })
+                    total_issues += 1
+                    logger.error(f"[CONSISTENCY] Ошибка проверки позиции {symbol}: {e}")
+            
+            consistency_result = {
+                'is_consistent': total_issues == 0,
+                'total_issues': total_issues,
+                'positions_with_issues': issues,
+                'total_positions_checked': len(self.open_positions),
+                'check_timestamp': datetime.now().isoformat()
+            }
+            
+            if total_issues == 0:
+                logger.debug(f"[CONSISTENCY] Все {len(self.open_positions)} позиций в порядке")
+            else:
+                logger.warning(f"[CONSISTENCY] Найдено {total_issues} проблем в {len(issues)} позициях")
+            
+            return consistency_result
+            
+        except Exception as e:
+            logger.error(f"[CONSISTENCY] Критическая ошибка проверки консистентности позиций: {e}", exc_info=True)
+            return {
+                'is_consistent': False,
+                'total_issues': 1,
+                'error': str(e),
+                'check_timestamp': datetime.now().isoformat()
+            }
