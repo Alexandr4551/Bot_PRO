@@ -1,0 +1,7 @@
+{
+  "migration_date": "2025-07-22T03:41:59.370700",
+  "original_file": "virtual_traider.py",
+  "original_results": "virtual_trader_results",
+  "migration_tool_version": "2.0",
+  "notes": "Backup created before migration to modular virtual_trading V2"
+}

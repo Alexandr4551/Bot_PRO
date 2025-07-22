@@ -1,0 +1,33 @@
+# Основные зависимости
+aiohttp>=3.8.0
+pandas>=1.5.0
+numpy>=1.21.0
+asyncio-throttle>=1.0.0
+
+# Технический анализ
+ta>=0.10.0
+
+# Машинное обучение
+scikit-learn>=1.0.0
+xgboost>=1.6.0
+lightgbm>=3.3.0
+joblib>=1.2.0
+
+# Обработка данных
+pytz>=2022.1
+python-dateutil>=2.8.0
+
+# Прогресс бары
+tqdm>=4.64.0
+
+# Для работы с файлами
+openpyxl>=3.0.0
+
+# Дополнительные утилиты
+typing-extensions>=4.0.0
+
+# Для работы с .env файлами
+python-dotenv>=1.0.0
+
+# Для Windows (опционально)
+# pywin32>=227; sys_platform == "win32"
