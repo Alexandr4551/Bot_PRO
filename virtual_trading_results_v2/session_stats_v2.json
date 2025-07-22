@@ -1,9 +1,9 @@
 {
-  "session_duration_hours": 0.00017570194444444442,
-  "timestamp": "2025-07-22T06:01:53.300767",
+  "session_duration_hours": 0.006689262222222223,
+  "timestamp": "2025-07-22T09:05:21.831083",
   "initial_balance": 10000.0,
   "available_balance": 10000.0,
-  "invested_capital": 0,
+  "invested_capital": 0.0,
   "unrealized_pnl": 0.0,
   "current_balance": 10000.0,
   "balance_change": 0.0,
@@ -11,6 +11,7 @@
   "exposure_percent": 0.0,
   "max_exposure_percent": 20.0,
   "position_size_usd": 200.0,
+  "total_realized_pnl": 0.0,
   "total_trades": 0,
   "winning_trades": 0,
   "losing_trades": 0,
@@ -44,5 +45,5 @@
     "trades_per_day": 0
   },
   "save_reason": "periodic_save",
-  "save_time": "2025-07-22T06:01:53.300890"
+  "save_time": "2025-07-22T09:05:21.831278"
 }
