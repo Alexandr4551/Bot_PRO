@@ -5,8 +5,7 @@
 """
 
 import logging
-import signal
-import sys
+import json
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -61,23 +60,9 @@ class VirtualTraderV2:
         # История для статистики (делегируем в StatisticsCalculator)
         self.last_timing_status = {}
         
-        # Настройка обработчиков сигналов
-        self.setup_signal_handlers()
-        
         logger.info("[INIT] Все сервисы инициализированы успешно")
         logger.info(f"[INIT] Результаты будут сохраняться в: {os.path.abspath(self.report_generator.results_dir)}/")
         logger.info("[SUCCESS] Виртуальный трейдер V2 готов к работе")
-    
-    def setup_signal_handlers(self):
-        """Настройка обработчиков сигналов завершения"""
-        def signal_handler(signum, frame):
-            logger.warning(f"[SIGNAL] Получен сигнал завершения {signum}")
-            print(f"\n[SIGNAL] Получен сигнал {signum}. Завершение работы...")
-            self.is_running = False
-        
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        logger.debug("[SETUP] Обработчики сигналов настроены")
     
     async def open_virtual_position(self, signal: Dict) -> None:
         """Открытие виртуальной позиции - делегирует в PositionManager"""
@@ -109,6 +94,14 @@ class VirtualTraderV2:
     async def check_position_exits(self, api) -> None:
         """Проверка закрытия позиций - делегирует в PositionManager"""
         await self.position_manager.check_position_exits(api)
+        
+        # НОВОЕ: Проверка консистентности после изменений позиций
+        try:
+            consistency = self.balance_manager.check_balance_consistency(self.open_positions)
+            if not consistency.get('is_consistent', True):
+                logger.warning(f"[CONSISTENCY] Обнаружена несогласованность баланса: {consistency}")
+        except Exception as e:
+            logger.debug(f"[CONSISTENCY] Ошибка проверки консистентности: {e}")
     
     async def log_status(self, api=None, engine=None) -> None:
         """Логирование статуса - использует StatisticsCalculator"""
@@ -191,6 +184,168 @@ class VirtualTraderV2:
                 
         except Exception as e:
             logger.error(f"[ERROR] Ошибка периодического сохранения: {e}", exc_info=True)
+    
+    def quick_save(self) -> Optional[str]:
+        """Быстрое сохранение только критичных данных (для экстренного завершения)"""
+        try:
+            timestamp = datetime.now().strftime('%H%M%S')
+            
+            # ИСПРАВЛЕНО: Используем новую логику баланса
+            balance_summary = self.balance_manager.get_balance_summary(self.open_positions)
+            
+            # Быстрая статистика без долгих операций
+            stats = {
+                'emergency_save': True,
+                'save_time': datetime.now().isoformat(),
+                'session_duration_hours': (datetime.now() - self.start_time).total_seconds() / 3600,
+                
+                # ИСПРАВЛЕНО: Используем правильные значения из balance_summary
+                'initial_balance': balance_summary['initial_balance'],
+                'available_balance': balance_summary['available_balance'],
+                'current_balance': balance_summary['current_balance'],
+                'balance_change': balance_summary['balance_change'],
+                'balance_percent': balance_summary['balance_percent'],
+                
+                # НОВОЕ: Отладочная информация
+                'invested_capital': balance_summary['invested_capital'],
+                'unrealized_pnl': balance_summary['unrealized_pnl'],
+                'total_realized_pnl': balance_summary['total_realized_pnl'],
+                'market_value_positions': balance_summary['market_value_positions'],
+                'current_balance_v2': balance_summary['current_balance_v2'],
+                'balance_difference': balance_summary['balance_difference'],
+                
+                # Быстрая статистика сделок
+                'total_trades': len(self.closed_trades),
+                'winning_trades': len([t for t in self.closed_trades if t.pnl_usd > 0]),
+                'losing_trades': len([t for t in self.closed_trades if t.pnl_usd <= 0]),
+                'win_rate': (len([t for t in self.closed_trades if t.pnl_usd > 0]) / max(1, len(self.closed_trades))) * 100,
+                'total_pnl': sum(t.pnl_usd for t in self.closed_trades),
+                
+                # Позиции
+                'open_positions_count': len(self.open_positions),
+                
+                # Timing
+                'timing_stats': self.timing_stats.copy(),
+                
+                # Блокировки
+                'total_signals': self.total_signals,
+                'blocked_by_balance': self.blocked_by_balance,
+                'blocked_by_exposure': self.blocked_by_exposure,
+                
+                # НОВОЕ: Проверки консистентности
+                'consistency_check': self.balance_manager.check_balance_consistency(self.open_positions),
+                'positions_consistency': self.position_manager.check_positions_consistency()
+            }
+            
+            # Profit Factor
+            if stats['total_trades'] > 0:
+                total_profit = sum(t.pnl_usd for t in self.closed_trades if t.pnl_usd > 0)
+                total_loss = abs(sum(t.pnl_usd for t in self.closed_trades if t.pnl_usd < 0))
+                stats['profit_factor'] = total_profit / total_loss if total_loss > 0 else float('inf')
+            else:
+                stats['profit_factor'] = 0
+            
+            # Сохраняем в emergency файл
+            emergency_file = f"{self.results_dir}/emergency_save_{timestamp}.json"
+            
+            with open(emergency_file, 'w', encoding='utf-8') as f:
+                json.dump(stats, f, indent=2, default=str)
+            
+            logger.info(f"[EMERGENCY] Экстренное сохранение: {emergency_file}")
+            
+            # НОВОЕ: Логируем потенциальные проблемы
+            if abs(stats['balance_difference']) > 1.0:
+                logger.warning(f"[EMERGENCY] Обнаружена разница в расчете баланса: ${stats['balance_difference']:+.2f}")
+            
+            return emergency_file
+            
+        except Exception as e:
+            logger.error(f"[EMERGENCY] Ошибка экстренного сохранения: {e}")
+            return None
+
+    def create_quick_txt_summary(self, stats: Dict) -> None:
+        """Создает быстрый txt отчет с отладочной информацией"""
+        try:
+            summary_file = f"{self.results_dir}/session_summary.txt"
+            
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write("=== ИТОГИ ТОРГОВОЙ СЕССИИ ===\n")
+                f.write(f"Завершено: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Длительность: {stats['session_duration_hours']:.1f} часов\n")
+                f.write("=" * 35 + "\n\n")
+                
+                f.write("💰 ФИНАНСОВЫЕ РЕЗУЛЬТАТЫ:\n")
+                f.write(f"   Начальный баланс: ${stats['initial_balance']:,.0f}\n")
+                f.write(f"   Итоговый баланс:  ${stats['current_balance']:,.0f}\n")
+                f.write(f"   Общий P&L:        ${stats['total_pnl']:+,.0f}\n")
+                f.write(f"   P&L в процентах:  {stats['balance_percent']:+.2f}%\n")
+                
+                # НОВОЕ: Показываем отладочную информацию если есть проблемы
+                if abs(stats.get('balance_difference', 0)) > 1.0:
+                    f.write(f"\n⚠️ ОТЛАДОЧНАЯ ИНФОРМАЦИЯ:\n")
+                    f.write(f"   Доступный баланс:     ${stats['available_balance']:,.2f}\n")
+                    f.write(f"   Инвестированный:      ${stats.get('invested_capital', 0):,.2f}\n")
+                    f.write(f"   Нереализованный P&L:  ${stats.get('unrealized_pnl', 0):+,.2f}\n")
+                    f.write(f"   Рыночная стоимость:   ${stats.get('market_value_positions', 0):,.2f}\n")
+                    f.write(f"   Realized P&L:         ${stats.get('total_realized_pnl', 0):+,.2f}\n")
+                    f.write(f"   Альтернативный баланс: ${stats.get('current_balance_v2', 0):,.2f}\n")
+                    f.write(f"   Разница в расчетах:   ${stats.get('balance_difference', 0):+.2f}\n")
+                
+                f.write("\n📊 ТОРГОВАЯ СТАТИСТИКА:\n")
+                f.write(f"   Всего сделок:     {stats['total_trades']}\n")
+                f.write(f"   Прибыльных:       {stats['winning_trades']}\n")
+                f.write(f"   Убыточных:        {stats['losing_trades']}\n")
+                f.write(f"   Винрейт:          {stats['win_rate']:.1f}%\n")
+                
+                if stats['total_trades'] > 0:
+                    avg_pnl = stats['total_pnl'] / stats['total_trades']
+                    f.write(f"   Средний P&L:      ${avg_pnl:+.2f}\n")
+                    f.write(f"   Profit Factor:    {stats.get('profit_factor', 0):.2f}\n")
+                
+                f.write(f"   Открытых позиций: {stats['open_positions_count']}\n\n")
+                
+                f.write("⏰ TIMING СТАТИСТИКА:\n")
+                timing = stats['timing_stats']
+                f.write(f"   Через timing:     {timing.get('entries_from_timing', 0)}\n")
+                f.write(f"   Немедленных:      {timing.get('immediate_entries', 0)}\n")
+                f.write(f"   Среднее ожидание: {timing.get('average_wait_time', 0):.1f} мин\n")
+                
+                total_entries = timing.get('entries_from_timing', 0) + timing.get('immediate_entries', 0)
+                if total_entries > 0:
+                    timing_usage = (timing.get('entries_from_timing', 0) / total_entries) * 100
+                    f.write(f"   Использование:    {timing_usage:.1f}%\n")
+                
+                f.write("\n🚫 БЛОКИРОВКИ:\n")
+                f.write(f"   По балансу:       {stats['blocked_by_balance']}\n")
+                f.write(f"   По экспозиции:    {stats['blocked_by_exposure']}\n")
+                f.write(f"   Всего сигналов:   {stats['total_signals']}\n")
+                
+                # НОВОЕ: Показываем проблемы консистентности
+                consistency = stats.get('consistency_check', {})
+                if not consistency.get('is_consistent', True):
+                    f.write(f"\n⚠️ ПРОБЛЕМЫ КОНСИСТЕНТНОСТИ:\n")
+                    f.write(f"   Разница в балансе: ${consistency.get('difference', 0):+.2f}\n")
+                    f.write(f"   Процент разницы:   {consistency.get('difference_percent', 0):.3f}%\n")
+                
+                pos_consistency = stats.get('positions_consistency', {})
+                if pos_consistency.get('total_issues', 0) > 0:
+                    f.write(f"\n⚠️ ПРОБЛЕМЫ ПОЗИЦИЙ:\n")
+                    f.write(f"   Проблемных позиций: {len(pos_consistency.get('positions_with_issues', []))}\n")
+                    f.write(f"   Всего проблем:      {pos_consistency.get('total_issues', 0)}\n")
+                
+                f.write("\n" + "=" * 35 + "\n")
+                if stats['win_rate'] >= 60:
+                    f.write("🎉 Отличная сессия!\n")
+                elif stats['win_rate'] >= 50:
+                    f.write("👍 Хорошая сессия!\n") 
+                else:
+                    f.write("📈 Есть что улучшать!\n")
+                f.write("Сессия завершена успешно.\n")
+            
+            logger.info(f"[SUMMARY] Краткий отчет создан: {summary_file}")
+            
+        except Exception as e:
+            logger.error(f"[SUMMARY] Ошибка создания txt отчета: {e}")
     
     def save_results(self) -> Optional[str]:
         """Сохранение результатов - делегирует в ReportGenerator"""

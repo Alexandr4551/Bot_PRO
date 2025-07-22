@@ -12,6 +12,7 @@ import time
 import signal
 import sys
 import os
+import json
 from datetime import datetime
 
 # Настройка логирования
@@ -29,41 +30,56 @@ from virtual_trading import VirtualTraderV2
 
 # Глобальные переменные для корректного завершения
 virtual_trader = None
-is_running = True
+shutdown_requested = False
 
 def setup_signal_handlers():
-    """Настройка обработчиков сигналов для корректного завершения"""
-    def signal_handler(signum, frame):
-        global is_running
-        print(f"\n🛑 Получен сигнал завершения {signum}")
+    """Единственный быстрый обработчик сигналов для корректного завершения"""
+    def fast_signal_handler(signum, frame):
+        global shutdown_requested
+        
+        signal_name = "SIGINT" if signum == signal.SIGINT else f"Signal {signum}"
+        print(f"\n🛑 {signal_name} получен! Быстрое завершение...")
         logger.warning(f"🛑 Получен сигнал завершения {signum}")
-        is_running = False
         
-        # Сохраняем результаты виртуального трейдера
-        if virtual_trader:
-            print("💾 Сохраняем финальные результаты...")
-            try:
-                final_file = virtual_trader.save_results()
-                if final_file:
-                    print(f"✅ Результаты сохранены: {final_file}")
-                else:
-                    print("❌ Ошибка сохранения результатов")
+        shutdown_requested = True
+        
+        # БЫСТРОЕ сохранение только критичных данных
+        try:
+            if virtual_trader:
+                print("💾 Экстренное сохранение...")
                 
-                # Печатаем финальный отчет
-                virtual_trader.print_final_report()
-            except Exception as e:
-                print(f"❌ Ошибка при сохранении: {e}")
-                logger.error(f"Ошибка при сохранении: {e}")
+                # Используем новый метод quick_save
+                emergency_file = virtual_trader.quick_save()
+                if emergency_file:
+                    print(f"✅ Данные сохранены: {emergency_file}")
+                
+                # Быстрый txt summary
+                stats = virtual_trader.calculate_statistics()
+                virtual_trader.create_quick_txt_summary(stats)
+                print(f"📄 Отчет создан: {virtual_trader.results_dir}/session_summary.txt")
+                
+        except Exception as e:
+            print(f"⚠️ Ошибка экстренного сохранения: {e}")
+            logger.error(f"Ошибка экстренного сохранения: {e}")
         
-        print("👋 Виртуальный трейдер завершен")
-        sys.exit(0)
+        print("👋 Принудительное завершение через 2 сек...")
+        
+        # Принудительное завершение через 2 секунды
+        def force_exit():
+            print("🏁 Принудительное завершение!")
+            os._exit(0)  # Агрессивное завершение
+        
+        import threading
+        timer = threading.Timer(2.0, force_exit)
+        timer.start()
     
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # Регистрируем обработчики ТОЛЬКО здесь
+    signal.signal(signal.SIGINT, fast_signal_handler)
+    signal.signal(signal.SIGTERM, fast_signal_handler)
 
 async def run_virtual_trader():
     """Основная функция запуска виртуального трейдера"""
-    global virtual_trader, is_running
+    global virtual_trader, shutdown_requested
     
     print("🤖 ВИРТУАЛЬНЫЙ ТРЕЙДЕР V2 - МОДУЛЬНАЯ АРХИТЕКТУРА")
     print("=" * 70)
@@ -109,7 +125,7 @@ async def run_virtual_trader():
         print(f"\n🔄 Начинаем виртуальную торговлю...")
         print(f"📊 Отслеживаемые символы: {len(SYMBOLS)}")
         print(f"⏱️ Интервал проверки: {INTERVAL_SEC} сек")
-        print(f"💡 Для остановки нажмите Ctrl+C")
+        print(f"💡 Для остановки нажмите Ctrl+C (быстрое завершение)")
         print("=" * 70)
         
         cycle_count = 0
@@ -117,10 +133,15 @@ async def run_virtual_trader():
         total_entries_executed = 0
         
         # Основной цикл виртуальной торговли
-        while is_running:
+        while not shutdown_requested:
             try:
                 cycle_count += 1
                 start_time = time.time()
+                
+                # Быстрая проверка shutdown
+                if shutdown_requested:
+                    print("\n🛑 Получен сигнал завершения в цикле")
+                    break
                 
                 logger.info(f"\n{'='*70}")
                 logger.info(f"🔍 Цикл #{cycle_count}: Виртуальная торговля с timing (модульная архитектура)")
@@ -128,6 +149,9 @@ async def run_virtual_trader():
                 
                 # ФАЗА 1: Генерация новых сигналов (добавляем в timing систему)
                 new_signals = await engine.analyze_and_generate_signals(SYMBOLS)
+                
+                if shutdown_requested:
+                    break
                 
                 if new_signals:
                     total_signals_generated += len(new_signals)
@@ -147,12 +171,17 @@ async def run_virtual_trader():
                 # ФАЗА 2: Проверка готовых к входу сигналов
                 ready_entries = await engine.check_ready_entries()
                 
+                if shutdown_requested:
+                    break
+                
                 if ready_entries:
                     total_entries_executed += len(ready_entries)
                     logger.info(f"🎯 Готовых к входу сигналов: {len(ready_entries)}")
                     print(f"🎯 Готовых к входу: {len(ready_entries)}")
                     
                     for entry_signal in ready_entries:
+                        if shutdown_requested:
+                            break
                         # Открываем виртуальную позицию через новую модульную систему
                         try:
                             await virtual_trader.open_virtual_position(entry_signal)
@@ -163,12 +192,13 @@ async def run_virtual_trader():
                             print(f"❌ Ошибка: {entry_signal['symbol']} - {vt_error}")
                 
                 # ФАЗА 3: Проверка закрытия виртуальных позиций
-                if virtual_trader.open_positions:
+                if virtual_trader.open_positions and not shutdown_requested:
                     logger.debug(f"🔍 Проверяем закрытие {len(virtual_trader.open_positions)} виртуальных позиций...")
                     await virtual_trader.check_position_exits(api)
                 
                 # ФАЗА 4: Логирование статуса виртуального трейдера
-                await virtual_trader.log_status(api, engine)
+                if not shutdown_requested:
+                    await virtual_trader.log_status(api, engine)
                 
                 # ФАЗА 5: Получение статуса timing системы
                 timing_status = engine.get_timing_status()
@@ -186,7 +216,7 @@ async def run_virtual_trader():
                 logger.info(f"   ⏱️ Время цикла: {cycle_time:.1f} сек")
                 
                 # Детальный отчет каждые 20 циклов
-                if cycle_count % 20 == 0:
+                if cycle_count % 20 == 0 and not shutdown_requested:
                     print(f"\n📋 ДЕТАЛЬНЫЙ ОТЧЕТ (цикл {cycle_count}):")
                     print("=" * 50)
                     
@@ -239,7 +269,7 @@ async def run_virtual_trader():
                     print("=" * 50)
                 
                 # Автосохранение каждые 60 циклов
-                if cycle_count % 60 == 0:
+                if cycle_count % 60 == 0 and not shutdown_requested:
                     logger.info("💾 Автосохранение...")
                     try:
                         virtual_trader.save_results()
@@ -249,18 +279,42 @@ async def run_virtual_trader():
                 
                 logger.info(f"{'='*70}")
                 
-                # Пауза между циклами
-                await asyncio.sleep(INTERVAL_SEC)
+                # Пауза между циклами с проверкой shutdown
+                for i in range(INTERVAL_SEC):
+                    if shutdown_requested:
+                        break
+                    await asyncio.sleep(1)
                 
             except Exception as e:
+                if shutdown_requested:
+                    break
                 print(f"❌ Ошибка в цикле виртуального трейдера: {str(e)}")
                 logger.error(f"Ошибка в цикле виртуального трейдера: {str(e)}")
-                await asyncio.sleep(30)  # Пауза при ошибке
+                
+                # Пауза при ошибке с проверкой shutdown
+                for i in range(30):
+                    if shutdown_requested:
+                        break
+                    await asyncio.sleep(1)
+    
+    # Финальное сохранение если не было прерывания
+    if not shutdown_requested and virtual_trader:
+        print("\n💾 Обычное завершение - полное сохранение...")
+        try:
+            final_file = virtual_trader.save_results()
+            if final_file:
+                print(f"✅ Полные результаты: {final_file}")
+            virtual_trader.print_final_report()
+        except Exception as e:
+            print(f"❌ Ошибка финального сохранения: {e}")
+            logger.error(f"Ошибка финального сохранения: {e}")
+    
+    print("👋 Виртуальный трейдер завершен!")
 
 async def main():
     """Главная функция"""
     try:
-        # Настраиваем обработчики сигналов
+        # Настраиваем обработчики сигналов в самом начале
         setup_signal_handlers()
         
         # Запускаем виртуального трейдера
@@ -273,28 +327,19 @@ async def main():
         print(f"💥 Критическая ошибка: {str(e)}")
         logger.exception("Критическая ошибка в виртуальном трейдере")
     finally:
-        # Финальное сохранение
-        if virtual_trader:
-            print("\n💾 Сохраняем финальные результаты...")
+        # Финальная очистка
+        if virtual_trader and not shutdown_requested:
             try:
-                final_file = virtual_trader.save_results()
-                if final_file:
-                    print(f"✅ Финальные результаты сохранены!")
-                    print(f"📁 Файл: {final_file}")
-                
-                # Печатаем финальный отчет
-                virtual_trader.print_final_report()
-                
-            except Exception as e:
-                print(f"❌ Ошибка финального сохранения: {e}")
-                logger.error(f"Ошибка финального сохранения: {e}")
+                virtual_trader.quick_save()
+            except:
+                pass
         
-        print("👋 Виртуальный трейдер завершен!")
+        print("🔄 Программа завершена.")
 
 if __name__ == "__main__":
-    print("🚀 ЗАПУСК ВИРТУАЛЬНОГО ТРЕЙДЕРА V2 (МОДУЛЬНАЯ АРХИТЕКТУРА)")
+    print("🚀 ЗАПУСК ВИРТУАЛЬНОГО ТРЕЙДЕРА V2 (БЫСТРОЕ ЗАВЕРШЕНИЕ)")
     print("🎯 models/ + services/ + core/ = новая система")
-    print("💡 Для остановки нажмите Ctrl+C")
+    print("💡 Для остановки нажмите Ctrl+C (быстрое завершение через 2 сек)")
     print()
     
     try:
