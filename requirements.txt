@@ -29,5 +29,9 @@ typing-extensions>=4.0.0
 # Для работы с .env файлами
 python-dotenv>=1.0.0
 
+# Оптимизация производительности
+cachetools>=5.0.0
+numba>=0.56.0
+
 # Для Windows (опционально)
 # pywin32>=227; sys_platform == "win32"

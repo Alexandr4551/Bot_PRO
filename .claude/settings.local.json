@@ -5,7 +5,9 @@
       "Bash(python:*)",
       "Bash(./venv2/Scripts/python.exe -m pip install:*)",
       "Bash(./venv2/Scripts/python.exe main.py)",
-      "Bash(./venv2/Scripts/python.exe run_virtual_trader.py)"
+      "Bash(./venv2/Scripts/python.exe run_virtual_trader.py)",
+      "Bash(\"./venv2/Scripts/python.exe\" test_pnl_calculations.py)",
+      "Bash(\"./venv2/Scripts/python.exe\" -m pip install cachetools numba)"
     ],
     "deny": []
   }
