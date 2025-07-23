@@ -1,0 +1,74 @@
+[
+  {
+    "symbol": "LTCUSDT",
+    "direction": "sell",
+    "entry_price": 119.45,
+    "entry_time": "2025-07-22T21:10:02.972084",
+    "exit_price": 117.78,
+    "exit_time": "2025-07-22T22:45:57.018235",
+    "exit_reason": "TP1",
+    "position_size_usd": 100.0,
+    "quantity_closed": 0.8371703641691084,
+    "pnl_usd": 1.3980745081624124,
+    "pnl_percent": 1.3980745081624124,
+    "duration_minutes": 95,
+    "timing_info": {
+      "original_signal_price": 119.42,
+      "timing_type": "pullback",
+      "wait_time_minutes": 3.507623166666667,
+      "confirmations": 2,
+      "entry_reason": "pullback_sell_confirmed_2"
+    },
+    "risk_reward": 0.6990372540812062,
+    "timing_type": "pullback",
+    "wait_time_minutes": 3.507623166666667
+  },
+  {
+    "symbol": "LTCUSDT",
+    "direction": "sell",
+    "entry_price": 119.45,
+    "entry_time": "2025-07-22T21:10:02.972084",
+    "exit_price": 117.165,
+    "exit_time": "2025-07-22T22:48:58.950443",
+    "exit_reason": "TP2",
+    "position_size_usd": 50.0,
+    "quantity_closed": 0.4185851820845542,
+    "pnl_usd": 0.956467141063205,
+    "pnl_percent": 1.91293428212641,
+    "duration_minutes": 98,
+    "timing_info": {
+      "original_signal_price": 119.42,
+      "timing_type": "pullback",
+      "wait_time_minutes": 3.507623166666667,
+      "confirmations": 2,
+      "entry_reason": "pullback_sell_confirmed_2"
+    },
+    "risk_reward": 0.9564671410632049,
+    "timing_type": "pullback",
+    "wait_time_minutes": 3.507623166666667
+  },
+  {
+    "symbol": "LTCUSDT",
+    "direction": "sell",
+    "entry_price": 119.45,
+    "entry_time": "2025-07-22T21:10:02.972084",
+    "exit_price": 116.96,
+    "exit_time": "2025-07-22T22:58:04.874785",
+    "exit_reason": "TP3",
+    "position_size_usd": 50.0,
+    "quantity_closed": 0.4185851820845542,
+    "pnl_usd": 1.0422771033905438,
+    "pnl_percent": 2.0845542067810876,
+    "duration_minutes": 108,
+    "timing_info": {
+      "original_signal_price": 119.42,
+      "timing_type": "pullback",
+      "wait_time_minutes": 3.507623166666667,
+      "confirmations": 2,
+      "entry_reason": "pullback_sell_confirmed_2"
+    },
+    "risk_reward": 1.0422771033905436,
+    "timing_type": "pullback",
+    "wait_time_minutes": 3.507623166666667
+  }
+]

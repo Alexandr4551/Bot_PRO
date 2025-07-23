@@ -1,0 +1,63 @@
+{
+  "session_duration_hours": 3.2136660100000003,
+  "timestamp": "2025-07-22T23:01:06.177575",
+  "initial_balance": 10000.0,
+  "available_balance": 10003.396818752615,
+  "invested_capital": 0.0,
+  "unrealized_pnl": 0.0,
+  "current_balance": 10003.396818752615,
+  "balance_change": 3.396818752615218,
+  "balance_percent": 0.033968187526152174,
+  "exposure_percent": 0.0,
+  "max_exposure_percent": 20.0,
+  "position_size_usd": 200.0,
+  "total_realized_pnl": 3.396818752616161,
+  "total_trades": 3,
+  "winning_trades": 3,
+  "losing_trades": 0,
+  "win_rate": 100.0,
+  "total_pnl": 3.396818752616161,
+  "average_pnl": 1.1322729175387203,
+  "average_win": 1.1322729175387203,
+  "average_loss": 0,
+  "profit_factor": Infinity,
+  "max_consecutive_wins": 3,
+  "max_consecutive_losses": 0,
+  "open_positions_count": 0,
+  "positions_by_direction": {
+    "buy": 0,
+    "sell": 0
+  },
+  "positions_with_profit": 0,
+  "avg_position_age_minutes": 0,
+  "timing_analysis": {
+    "entries_from_timing": 1,
+    "immediate_entries": 0,
+    "average_wait_time_minutes": 3.507623166666667,
+    "timing_usage_rate": 100.0,
+    "timing_performance_by_type": {
+      "pullback": {
+        "count": 3,
+        "total_pnl": 3.396818752616161,
+        "wins": 3,
+        "total_wait_time": 10.5228695,
+        "win_rate": 100.0,
+        "average_pnl": 1.1322729175387203,
+        "average_wait_time": 3.507623166666667
+      }
+    }
+  },
+  "performance_metrics": {
+    "sharpe_ratio": 0,
+    "max_drawdown_percent": 0,
+    "recovery_factor": 0,
+    "profit_per_day": 0,
+    "trades_per_day": 0
+  },
+  "total_signals": 1,
+  "total_trades_opened": 1,
+  "blocked_by_balance": 0,
+  "blocked_by_exposure": 0,
+  "save_reason": "final_results",
+  "session_end_time": "2025-07-22T23:01:06.177781"
+}

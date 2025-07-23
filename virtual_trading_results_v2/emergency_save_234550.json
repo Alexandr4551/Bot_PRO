@@ -1,0 +1,29 @@
+{
+  "emergency_save": true,
+  "save_time": "2025-07-22T23:45:50.811937",
+  "session_duration_hours": 3.959397784722222,
+  "initial_balance": 10000.0,
+  "available_balance": 10003.396818752615,
+  "invested_capital": 0.0,
+  "unrealized_pnl": 0.0,
+  "current_balance": 10003.396818752615,
+  "balance_change": 3.396818752615218,
+  "balance_percent": 0.033968187526152174,
+  "exposure_percent": 0.0,
+  "max_exposure_percent": 20.0,
+  "position_size_usd": 200.0,
+  "total_realized_pnl": 3.396818752616161,
+  "total_trades": 3,
+  "winning_trades": 3,
+  "total_pnl": 3.396818752616161,
+  "open_positions_count": 0,
+  "timing_stats": {
+    "signals_queued": 0,
+    "entries_from_timing": 1,
+    "immediate_entries": 0,
+    "average_wait_time": 3.507623166666667
+  },
+  "total_signals": 1,
+  "blocked_by_balance": 0,
+  "blocked_by_exposure": 0
+}

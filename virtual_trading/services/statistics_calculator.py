@@ -89,7 +89,7 @@ class StatisticsCalculator:
             return self._get_empty_stats()
     
     def calculate_trades_statistics(self, closed_trades: List) -> Dict:
-        """Рассчитывает статистику по сделкам"""
+        """Рассчитывает статистику по сделкам - группирует частичные выходы как одну сделку"""
         if not closed_trades:
             return {
                 'total_trades': 0,
@@ -105,28 +105,61 @@ class StatisticsCalculator:
                 'max_consecutive_losses': 0
             }
         
-        # Базовая статистика
-        winning_trades = [t for t in closed_trades if t.pnl_usd > 0]
-        losing_trades = [t for t in closed_trades if t.pnl_usd <= 0]
+        # Группируем закрытые части по позициям (symbol + entry_time)
+        grouped_trades = {}
+        for trade in closed_trades:
+            # Ключ для группировки: символ + время входа + направление
+            key = f"{trade.symbol}_{trade.entry_time}_{trade.direction}"
+            
+            if key not in grouped_trades:
+                grouped_trades[key] = {
+                    'symbol': trade.symbol,
+                    'direction': trade.direction,
+                    'entry_time': trade.entry_time,
+                    'total_pnl': 0,
+                    'parts': []
+                }
+            
+            grouped_trades[key]['total_pnl'] += trade.pnl_usd
+            grouped_trades[key]['parts'].append(trade)
         
-        total_pnl = sum(t.pnl_usd for t in closed_trades)
-        total_profit = sum(t.pnl_usd for t in winning_trades)
-        total_loss = abs(sum(t.pnl_usd for t in losing_trades))
+        # Создаем список агрегированных сделок
+        aggregated_trades = []
+        for group_key, group_data in grouped_trades.items():
+            aggregated_trades.append({
+                'symbol': group_data['symbol'],
+                'direction': group_data['direction'],
+                'entry_time': group_data['entry_time'],
+                'total_pnl': group_data['total_pnl'],
+                'parts_count': len(group_data['parts']),
+                'exit_reasons': [part.exit_reason for part in group_data['parts']]
+            })
         
-        win_rate = len(winning_trades) / len(closed_trades) * 100
-        average_pnl = total_pnl / len(closed_trades)
+        # Рассчитываем статистику по агрегированным сделкам
+        winning_trades = [t for t in aggregated_trades if t['total_pnl'] > 0]
+        losing_trades = [t for t in aggregated_trades if t['total_pnl'] <= 0]
+        
+        total_pnl = sum(t['total_pnl'] for t in aggregated_trades)
+        total_profit = sum(t['total_pnl'] for t in winning_trades)
+        total_loss = abs(sum(t['total_pnl'] for t in losing_trades))
+        
+        win_rate = len(winning_trades) / len(aggregated_trades) * 100 if aggregated_trades else 0
+        average_pnl = total_pnl / len(aggregated_trades) if aggregated_trades else 0
         average_win = total_profit / len(winning_trades) if winning_trades else 0
         average_loss = total_loss / len(losing_trades) if losing_trades else 0
         profit_factor = total_profit / total_loss if total_loss > 0 else float('inf')
         
-        # Consecutive wins/losses
+        # Consecutive wins/losses по агрегированным сделкам
         max_consecutive_wins = 0
         max_consecutive_losses = 0
         current_wins = 0
         current_losses = 0
         
-        for trade in closed_trades:
-            if trade.pnl_usd > 0:
+        # Сортируем по времени входа для правильного подсчета последовательности
+        sorted_trades = sorted(aggregated_trades, key=lambda x: x['entry_time'])
+        
+        for trade in sorted_trades:
+            if trade['total_pnl'] > 0:
                 current_wins += 1
                 current_losses = 0
                 max_consecutive_wins = max(max_consecutive_wins, current_wins)
@@ -136,7 +169,7 @@ class StatisticsCalculator:
                 max_consecutive_losses = max(max_consecutive_losses, current_losses)
         
         return {
-            'total_trades': len(closed_trades),
+            'total_trades': len(aggregated_trades),
             'winning_trades': len(winning_trades),
             'losing_trades': len(losing_trades),
             'win_rate': win_rate,
@@ -146,7 +179,13 @@ class StatisticsCalculator:
             'average_loss': average_loss,
             'profit_factor': profit_factor,
             'max_consecutive_wins': max_consecutive_wins,
-            'max_consecutive_losses': max_consecutive_losses
+            'max_consecutive_losses': max_consecutive_losses,
+            # Дополнительная информация для отладки
+            'total_partial_exits': len(closed_trades),
+            'grouped_trades_details': [
+                f"{t['symbol']} ({t['parts_count']} частей): ${t['total_pnl']:+.2f}"
+                for t in aggregated_trades
+            ]
         }
     
     def analyze_timing_performance(self, closed_trades: List, timing_stats: Dict) -> Dict:
@@ -167,13 +206,33 @@ class StatisticsCalculator:
         if total_entries > 0:
             timing_analysis['timing_usage_rate'] = (timing_stats.get('entries_from_timing', 0) / total_entries) * 100
         
-        # Анализ по типам timing для закрытых сделок
+        # Анализ по типам timing для закрытых сделок - группируем по позициям
         timing_performance = {}
+        grouped_positions = {}
+        
+        # Сначала группируем части позиций
         for trade in closed_trades:
             if not hasattr(trade, 'timing_info') or not trade.timing_info:
                 continue
                 
-            timing_type = trade.timing_info.get('timing_type', 'unknown')
+            # Ключ для группировки позиций
+            position_key = f"{trade.symbol}_{trade.entry_time}_{trade.direction}"
+            
+            if position_key not in grouped_positions:
+                grouped_positions[position_key] = {
+                    'total_pnl': 0,
+                    'timing_info': trade.timing_info,
+                    'parts': []
+                }
+            
+            grouped_positions[position_key]['total_pnl'] += trade.pnl_usd
+            grouped_positions[position_key]['parts'].append(trade)
+        
+        # Теперь анализируем по типам timing для целых позиций
+        for position_data in grouped_positions.values():
+            timing_info = position_data['timing_info']
+            timing_type = timing_info.get('timing_type', 'unknown')
+            
             if timing_type not in timing_performance:
                 timing_performance[timing_type] = {
                     'count': 0,
@@ -183,11 +242,11 @@ class StatisticsCalculator:
                 }
             
             timing_performance[timing_type]['count'] += 1
-            timing_performance[timing_type]['total_pnl'] += trade.pnl_usd
-            if trade.pnl_usd > 0:
+            timing_performance[timing_type]['total_pnl'] += position_data['total_pnl']
+            if position_data['total_pnl'] > 0:
                 timing_performance[timing_type]['wins'] += 1
             
-            wait_time = trade.timing_info.get('wait_time_minutes', 0)
+            wait_time = timing_info.get('wait_time_minutes', 0)
             timing_performance[timing_type]['total_wait_time'] += wait_time
         
         # Рассчитываем средние значения
